@@ -1,39 +1,41 @@
 import yfinance as yf
-import numpy as np
+import math
 import pandas as pd
 from sys import argv
+from stockstats import StockDataFrame as sdf
 
 
 def ticker_hist (Ticker):
     """
     returns pandas dataframe containing yahoo finance history for given ticker
     """
-    ticker = yf.Ticker(Ticker)
-    df = ticker.history(period="max")
-    df.insert(0, 'Ticker', Ticker)
+    df = yf.Ticker(Ticker).history(period="max")
+    df.insert(0, 'ticker', Ticker)
+    df['cum_dividend'] = df.Dividends.cumsum()
+    df.columns= df.columns.str.lower()
 
     return df
 
 
-def date_framing(df, window):
+def date_framing(df, horizon):
     """
-    Filters dataframe for date window of interest
+    Filters dataframe for date horizon of interest
     """
-    if window == 'Daily':
+    if horizon == 'Daily':
         pass
-    elif window == 'Weekly':
+    elif horizon == 'Weekly':
         df = df.resample('W').last()
-    elif window == 'BiWeekly':
+    elif horizon == 'BiWeekly':
         df = df.resample('W').last()
         df = df.loc[::2, :] # only every other
-    elif window == 'Monthly':
+    elif horizon == 'Monthly':
         df = df.resample('M').last()
-    elif window == 'Yearly':
+    elif horizon == 'Yearly':
         df = df.groupby([df.index.year]).tail(1)
     else:
         raise ValueError('Enter a valid return period (Daily, Weekly, BiWeekly, Monthly, Yearly).')
 
-    df.insert(1, 'ReturnPeriod', window)
+    df.insert(1, 'horizon', horizon)
 
     return df
 
@@ -42,12 +44,17 @@ def attribution(df):
     """
     Returns performance attribution calcs
     """
-    df['PrevClose'] = df['Close'].shift(1)
-    df['DeltaPrice'] = df['Close'] - df['PrevClose']
-    df['Delta'] = df['DeltaPrice'] + df['Dividends']
-    df['Return'] = df['Delta'] / df['PrevClose'] * 100
-    df['Sigma'] = df.Return.rolling(30).std() * np.sqrt(252)
-    
+    df['return'] = (((df['close'] + (df['cum_dividend'] - df['cum_dividend'].shift(1))) /  df['close'].shift(1)) - 1) * 100
+
+    return df
+
+
+def technicals(df):
+    df['vol30_annualized'] = df['return'].rolling(30).std() * math.sqrt(252)
+    df = sdf.retype(df)
+    df['macds']
+    df['rsi_12']
+
     return df
 
 
@@ -56,7 +63,10 @@ def returns(Ticker, ReturnPeriod):
     df = date_framing(df, ReturnPeriod)
     df = attribution(df)
 
-    df = df.drop(columns=['Stock Splits','PrevClose'],axis=1)
+    if ReturnPeriod == 'Daily':
+        df = technicals(df)
+
+    df = df.drop(columns=['stock splits', 'cum_dividend','close_-1_s','close_-1_d','macdh','rs_12'], axis=1, errors='ignore')
 
     return df
 
